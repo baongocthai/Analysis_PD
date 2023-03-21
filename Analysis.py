@@ -12,11 +12,12 @@ from pathlib import Path
 import datetime
 import numpy as np
 import math
-# from windrose import WindroseAxes
+from windrose import WindroseAxes
 from scipy import interpolate
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics import mean_absolute_error
 import statistics
+from scipy.stats import pearsonr
 
 #%% Function to import data
 def ReadData(location,parameter,directory,folder):
@@ -277,6 +278,43 @@ for i in range(len(location)):
             plt.savefig('Temperature\\MovingAverage'+location[i]+"_"+col.split('-')[-1]+".png", bbox_inches='tight',dpi=600)
             plt.close()
             print (col)
+            
+#%% Main block: Plot thermal stratification at 5 locations
+for i in range(len(location)):
+    df_aeration = Aeration['temperature'][i]
+    df_noaeration = No_Aeration['temperature'][i]
+    df_aeration_movingavg = df_aeration.rolling(24).mean()
+    df_noaeration_movingavg = df_noaeration.rolling(24).mean()
+    
+    for col in df_aeration.columns.tolist():
+        if (df_noaeration[col].isna().all() and df_aeration[col].isna().all()):
+            continue  # to skip a value in for loop
+        else:
+            #Thermal stratification = delta T = T top - T bottom
+            thermal_strat_noAeration = -df_noaeration[col] + df_noaeration.iloc[:,-1]
+            plt.plot(thermal_strat_noAeration.index, thermal_strat_noAeration, color='m', linestyle = 'dashed', linewidth=1.5, label='Without Aeration')
+            plt.ylabel("Delta T (oC)")
+            plt.xlim([datetime.datetime(2019, 1, 1), datetime.datetime(2020, 1, 1)])
+            plt.ylim(-0.3,2.5)
+            plt.rcParams.update({'font.size': 15})
+            figure = plt.gcf()
+            figure.set_size_inches(16,3.5)
+            plt.title("Thermal stratification at "+ location[i])
+            plt.savefig('Temperature\\ThermalStrat_NoAeration'+location[i]+".png", bbox_inches='tight',dpi=600)
+            plt.close()
+            
+            thermal_strat_Aeration = -df_aeration[col] + df_aeration.iloc[:,-1]
+            plt.plot(thermal_strat_Aeration.index, thermal_strat_Aeration, color='b', linewidth=1.5, label='With Aeration')
+            plt.ylabel("Delta T (oC)")
+            plt.xlim([datetime.datetime(2019, 1, 1), datetime.datetime(2020, 1, 1)])
+            plt.ylim(-0.3,2.5)
+            plt.rcParams.update({'font.size': 15})
+            figure = plt.gcf()
+            figure.set_size_inches(16,3.5)
+            plt.title("Thermal stratification at "+ location[i])
+            plt.savefig('Temperature\\ThermalStrat_WithAeration'+location[i]+".png", bbox_inches='tight',dpi=600)
+            plt.close()
+            break
 #%% Main block: Plot temperature contour
 water_layer = [-10, -7.5, -5, -4.17, -3.33, -2.5, -1.67, -0.83]
 for i in range(len(location)):
@@ -428,6 +466,41 @@ for n in range(len(depth_obs)):
     plt.savefig('Temperature\\MovingAverage_'+"WithAeration_Temperature_" + location[0]+"_"+str(depth_obs[n])+"m.png", bbox_inches='tight',dpi=600)
     plt.close()
     print (depth_obs[n])
+
+# Compare profiler and modelled results
+temperature_profiler_hourly_comparison = temperature_profiler_hourly.loc[aeration_temp_inter.index]
+temperature_profiler_hourly_comparison = temperature_profiler_hourly_comparison.dropna()
+aeration_temp_inter = aeration_temp_inter.loc[temperature_profiler_hourly_comparison.index]
+noaeration_temp_inter = noaeration_temp_inter.loc[aeration_temp_inter.index]
+
+#Compare with aeration results
+difference_aeration = abs(aeration_temp_inter - temperature_profiler_hourly_comparison)
+mae_aeration = difference_aeration.mean(axis = 0, skipna = True)
+mse_aeration = (difference_aeration**2).mean(axis = 0, skipna = True)
+rmse_aeration = (difference_aeration**2).mean(axis = 0, skipna = True)**0.5
+pearson_aeration = pd.Series([pearsonr(aeration_temp_inter[col],temperature_profiler_hourly_comparison[col])[0] for col in depth_obs])
+pearson_aeration.index = rmse_aeration.index
+std_modelled_aeration = aeration_temp_inter.std()
+mean_modelled_aeration = aeration_temp_inter.mean()
+std_temperature_profiler_hourly_comparison = temperature_profiler_hourly_comparison.std()
+mean_temperature_profiler_hourly_comparison = temperature_profiler_hourly_comparison.mean()
+aeration_stats_results = pd.concat([mae_aeration, mse_aeration, rmse_aeration, pearson_aeration, std_modelled_aeration, mean_modelled_aeration, std_temperature_profiler_hourly_comparison, mean_temperature_profiler_hourly_comparison], axis=1)
+aeration_stats_results.columns = ['mae','mse','rmse','pearson r','modelled std','modelled mean','obs std','obs mean']
+aeration_stats_results.to_csv('Vertical temperature profile stats at A2 (with aeration).csv')
+
+#Compare with aeration results
+difference_noaeration = abs(noaeration_temp_inter - temperature_profiler_hourly_comparison)
+mae_noaeration = difference_noaeration.mean(axis = 0, skipna = True)
+mse_noaeration = (difference_noaeration**2).mean(axis = 0, skipna = True)
+rmse_noaeration = (difference_noaeration**2).mean(axis = 0, skipna = True)**0.5
+pearson_noaeration = pd.Series([pearsonr(noaeration_temp_inter[col],temperature_profiler_hourly_comparison[col])[0] for col in depth_obs])
+pearson_noaeration.index = rmse_noaeration.index
+std_modelled_noaeration = noaeration_temp_inter.std()
+mean_modelled_noaeration = noaeration_temp_inter.mean()
+noaeration_stats_results = pd.concat([mae_noaeration, mse_noaeration, rmse_noaeration, pearson_noaeration, std_modelled_noaeration, mean_modelled_noaeration, std_temperature_profiler_hourly_comparison, mean_temperature_profiler_hourly_comparison], axis=1)
+noaeration_stats_results.columns = ['mae','mse','rmse','pearson r','modelled std','modelled mean','obs std','obs mean']
+noaeration_stats_results.to_csv('Vertical temperature profile stats at A2 (without aeration).csv')
+
 #%% Main block: Read mat file
 from pymatreader import read_mat
 # Extract surface grid cell areas from mat file
